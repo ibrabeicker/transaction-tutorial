@@ -1,16 +1,20 @@
 package com.pensarcomodev.transactional.service;
 
+import com.pensarcomodev.transactional.concurrency.PingPongLock;
 import com.pensarcomodev.transactional.entity.Company;
 import com.pensarcomodev.transactional.entity.Employee;
 import com.pensarcomodev.transactional.exception.SalaryException;
+import lombok.SneakyThrows;
 import lombok.extern.java.Log;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.concurrent.Semaphore;
 
 @Slf4j
 @Service
@@ -65,13 +69,6 @@ public class TransactionService {
         log.info("Persisted {}", company2);
     }
 
-    public void saveCompaniesSequentialTransactions(Company company1, Company company2) {
-        companyService.saveOnNewTransaction(company1);
-        log.info("Persisted {} on new transaction", company1);
-        companyService.saveOnNewTransaction(company2);
-        log.info("Persisted {} on new transaction", company2);
-    }
-
     @Transactional(timeout = 1)
     public void saveCompaniesWithDeadlock(Company company1, Company company2) {
         companyService.save(company1);
@@ -92,7 +89,51 @@ public class TransactionService {
         createWithTransaction(company, employees);
     }
 
-    private void errorMethod() {
-        throw new RuntimeException("Error");
+    @SneakyThrows
+    public List<Integer> testSaveAndCount(Company company) {
+        PingPongLock lock = new PingPongLock();
+        Thread thread = new Thread(() -> companyService.saveAndWaitSemaphore(company, lock));
+        thread.start();
+        return companyService.countCompanies(lock);
+    }
+
+    @SneakyThrows
+    public void pingPong() {
+        PingPongLock lock = new PingPongLock();
+        Thread thread = new Thread(() -> pongs(lock));
+        thread.start();
+        pings(lock);
+        thread.join();
+    }
+
+    private void pings(PingPongLock lock) {
+        for (int i = 0; i < 4; i++) {
+            log.info("Ping {}", i);
+            lock.ping();
+        }
+        lock.end();
+    }
+
+    private void pongs(PingPongLock lock) {
+        lock.waitPing();
+        for (int i = 0; i < 4; i++) {
+            log.info("Pong {}", i);
+            lock.pong();
+        }
+        lock.end();
+    }
+
+    @Transactional
+    public void transactional(List<Runnable> runnables) {
+        for (Runnable runnable : runnables) {
+            runnable.run();
+        }
+    }
+
+    @Transactional(isolation = Isolation.READ_UNCOMMITTED)
+    public void readUncommitted(List<Runnable> runnables) {
+        for (Runnable runnable : runnables) {
+            runnable.run();
+        }
     }
 }

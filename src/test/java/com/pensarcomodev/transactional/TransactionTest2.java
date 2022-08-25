@@ -1,39 +1,25 @@
 package com.pensarcomodev.transactional;
 
+import com.pensarcomodev.transactional.concurrency.ParallelTransactions;
 import com.pensarcomodev.transactional.concurrency.PingPongLock;
+import com.pensarcomodev.transactional.concurrency.TransactionActionsRunner;
 import com.pensarcomodev.transactional.entity.Company;
 import com.pensarcomodev.transactional.entity.Employee;
 import com.pensarcomodev.transactional.exception.SalaryException;
-import com.pensarcomodev.transactional.repository.CompanyRepository;
-import com.pensarcomodev.transactional.repository.EmployeeRepository;
-import com.pensarcomodev.transactional.service.CompanyService;
-import com.pensarcomodev.transactional.service.EmployeeService;
-import com.pensarcomodev.transactional.service.TransactionService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionManager;
-import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -45,9 +31,9 @@ import static org.springframework.transaction.annotation.Propagation.NOT_SUPPORT
 //@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = NOT_SUPPORTED) // we're going to handle transactions manually
 @SpringBootTest
-public class TransactionTest extends AbstractTest {
+public class TransactionTest2 extends AbstractTest {
 
-    private static final Logger log = LoggerFactory.getLogger(TransactionTest.class);
+    private static final Logger log = LoggerFactory.getLogger(TransactionTest2.class);
 
     /**
      * Quando a anotação @Transactional está presente, ou todas as operações são bem sucedidas ou nenhuma operação é bem sucedida.
@@ -234,13 +220,26 @@ public class TransactionTest extends AbstractTest {
     @Test
     public void testCountWhileInserting_readUncommited() {
 
-        PingPongLock lock = new PingPongLock();
-        Thread thread = new Thread(() -> companyService.saveAndWaitSemaphore(company, lock));
-        thread.start();
-        List<Integer> counts = companyService.countCompaniesUncommited(lock);
+        List<Integer> results = new ArrayList<>();
 
-        assertEquals(1, counts.get(0), "Through dirty reads the first select should return 1 uncommited");
-        assertEquals(1, counts.get(1));
+        ParallelTransactions parallelTransactions = new ParallelTransactions(null, null)
+                .action1(() -> {
+                    int count = (int) companyRepository.count();
+                    log.info("Selecting companies, result={}", count);
+                    results.add(count);
+                })
+                .action2(() -> {
+                    companyService.saveAndFlush(company);
+                })
+                .action1(() -> {
+                    int count2 = (int) companyRepository.count();
+                    log.info("Selecting companies, result={}", count2);
+                    results.add(count2);
+                });
+        parallelTransactions.execute(i -> transactionService.transactional(i), i -> transactionService.readUncommitted(i));
+
+        assertEquals(1, results.get(0), "Through dirty reads the first select should return 1 uncommited");
+        assertEquals(1, results.get(1));
     }
 
     /**
