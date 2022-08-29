@@ -48,7 +48,6 @@ public class EntityManagerTest extends AbstractTest {
         assertSame(companyBd.get(), companyBd2.get());
     }
 
-
     /**
      * Quando chamado em transações diferentes, chamadas que devem retornar a mesma entidade retornam objetos distintos
      * que representam a mesma entidade.
