@@ -25,11 +25,6 @@ public class PingPongLock {
         log.info("Received Pong");
     }
 
-    public void waitPing() {
-        //this.pongLock.acquireUninterruptibly();
-        this.pingLock.acquireUninterruptibly();
-    }
-
     public void pong() {
         log.info("Pong");
         this.pongLock.release();
@@ -37,9 +32,20 @@ public class PingPongLock {
         log.info("Received ping");
     }
 
+    public void waitPing() {
+        this.pingLock.acquireUninterruptibly();
+    }
+
     public void waitPong() {
         this.pongLock.acquireUninterruptibly();
-        this.pongLock.acquireUninterruptibly();
+    }
+
+    public void sendPing() {
+        this.pingLock.release();
+    }
+
+    public void sendPong() {
+        this.pongLock.release();
     }
 
     public void end() {

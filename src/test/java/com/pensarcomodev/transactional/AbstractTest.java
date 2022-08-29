@@ -11,6 +11,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -18,9 +21,13 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+//@Testcontainers
 public class AbstractTest {
 
     private static final Logger log = LoggerFactory.getLogger(TransactionTest.class);
+
+//    @Container
+//    private static final PostgreSQLContainer POSTGRE_SQL_CONTAINER = new PostgreSQLContainer("test-postgres");
 
     @Autowired
     protected TransactionService transactionService;

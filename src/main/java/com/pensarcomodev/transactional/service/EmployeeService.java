@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.persistence.EntityManager;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -57,6 +58,14 @@ public class EmployeeService {
         employeeRepository.increaseSalary(employeeId, increase);
         log.info("After increaseSalary");
         lock.end();
+    }
+
+    public List<String> deleteAll(Company company) {
+        List<String> firedDocuments = new ArrayList<>();
+        List<Employee> employees = findByCompany(company);
+        employees.stream().map(Employee::getDocument).forEach(firedDocuments::add);
+        deleteAll(employees);
+        return firedDocuments;
     }
 
     public void deleteAll(List<Employee> employees) {

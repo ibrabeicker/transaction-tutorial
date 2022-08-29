@@ -1,46 +1,31 @@
 package com.pensarcomodev.transactional;
 
+import com.pensarcomodev.transactional.concurrency.ParallelTransactions;
 import com.pensarcomodev.transactional.concurrency.PingPongLock;
+import com.pensarcomodev.transactional.concurrency.SequenceLock;
 import com.pensarcomodev.transactional.entity.Company;
 import com.pensarcomodev.transactional.entity.Employee;
 import com.pensarcomodev.transactional.exception.SalaryException;
-import com.pensarcomodev.transactional.repository.CompanyRepository;
-import com.pensarcomodev.transactional.repository.EmployeeRepository;
-import com.pensarcomodev.transactional.service.CompanyService;
-import com.pensarcomodev.transactional.service.EmployeeService;
-import com.pensarcomodev.transactional.service.TransactionService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionManager;
-import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.util.function.Consumer;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED;
 
 //@DataJpaTest
-@Testcontainers
 @ActiveProfiles("test")
 //@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = NOT_SUPPORTED) // we're going to handle transactions manually
@@ -48,6 +33,19 @@ import static org.springframework.transaction.annotation.Propagation.NOT_SUPPORT
 public class TransactionTest extends AbstractTest {
 
     private static final Logger log = LoggerFactory.getLogger(TransactionTest.class);
+
+    private Company company1 = Company.builder()
+            .document(COMPANY_DOCUMENT)
+            .name("COMPANY 1")
+            .build();
+    private Company company2 = Company.builder()
+            .document(COMPANY_DOCUMENT_2)
+            .name("COMPANY 2")
+            .build();
+    private Company company2Duplicated = Company.builder()
+            .document(COMPANY_DOCUMENT)
+            .name("COMPANY 2")
+            .build();
 
     /**
      * Quando a anotação @Transactional está presente, ou todas as operações são bem sucedidas ou nenhuma operação é bem sucedida.
@@ -124,21 +122,66 @@ public class TransactionTest extends AbstractTest {
         assertEquals(0, employeeRepository.count(), "Expected no employee persisted");
     }
 
+    /**
+     * A persistência feita em um método com REQUIRES_NEW continua mesmo após a transação do método de fora sofrer um rollback
+     */
     @Test
     public void testTwoTransactionsPersisting_firstPersistedMustSucceed() {
-        Company company1 = Company.builder()
-                .document(COMPANY_DOCUMENT)
-                .name("COMPANY 1")
-                .build();
-        Company company2 = Company.builder()
-                .document(COMPANY_DOCUMENT)
-                .name("COMPANY 2")
-                .build();
 
-        assertThrows(DataIntegrityViolationException.class, () -> transactionService.saveCompanies(company1, company2));
+        assertThrows(DataIntegrityViolationException.class, () -> transactionService.saveCompanies(company1, company2Duplicated));
 
         assertEquals(1, companyRepository.count());
         assertEquals("COMPANY 1", companyRepository.findAll().get(0).getName());
+    }
+
+    /**
+     * Em duas transações paralelas, se ambas tentam inserir registros que não causam violação nenhuma é bloqueada
+     */
+    @Test
+    public void testSimultaneousTransactionsPersisting_noViolationDoesntBlock() {
+
+        ParallelTransactions.builder()
+                .action1(() -> {
+                    companyRepository.saveAndFlush(company1);
+                    log.info("Persisted 1");
+                })
+                .action2(() -> {
+                    companyRepository.saveAndFlush(company2);
+                    log.info("Persisted 2");
+                })
+                .action1(() -> {
+                })
+                .execute(transactionService::transactional, transactionService::transactional);
+
+        assertEquals(2, companyRepository.count());
+        assertEquals("COMPANY 1", companyRepository.findAll().get(0).getName());
+    }
+
+    /**
+     * Em duas transações paralelas, se ambas tentam inserir registros que causam violação, a segunda é bloqueada esperando
+     * o commit ou rollback da primeira
+     */
+    @Test
+    public void testSimultaneousTransactionsPersisting_violationDoesBlock() {
+
+        SequenceLock sequenceLock = new SequenceLock();
+
+        ParallelTransactions.builder()
+                .action1(() -> {
+                    companyRepository.saveAndFlush(company1);
+                    log.info("Persisted 1");
+                })
+                .expectBlock2(() -> {
+                    companyRepository.saveAndFlush(company2Duplicated);
+                    sequenceLock.expectBlocking();
+                    log.info("Persisted 2");
+                })
+                .action1(() -> {
+                    sequenceLock.expectRunFirst();
+                })
+                .execute(transactionService::transactional, i -> withException(i, DataIntegrityViolationException.class));
+
+        assertTrue(sequenceLock.isRightOrder());
     }
 
     /**
@@ -151,12 +194,8 @@ public class TransactionTest extends AbstractTest {
      */
     @Test
     public void testTwoTransactionsPersisting_causesDeadlock() {
-        Company company2 = Company.builder()
-                .document(COMPANY_DOCUMENT_2)
-                .name("COMPANY 2")
-                .build();
 
-        assertThrows(JpaSystemException.class, () -> transactionService.saveCompaniesWithDeadlock(company, company2));
+        assertThrows(JpaSystemException.class, () -> transactionService.saveCompaniesWithDeadlock(company, company2Duplicated));
 
         assertEquals(0, companyRepository.count());
     }
@@ -168,12 +207,8 @@ public class TransactionTest extends AbstractTest {
      */
     @Test
     public void testTransactionRequired_dataIntegrityRollbackEverything() {
-        Company company2 = Company.builder()
-                .document(COMPANY_DOCUMENT)
-                .name("COMPANY 2")
-                .build();
 
-        assertThrows(DataIntegrityViolationException.class, () -> transactionService.saveCompaniesTransactionRequired(company, company2));
+        assertThrows(DataIntegrityViolationException.class, () -> transactionService.saveCompaniesTransactionRequired(company, company2Duplicated));
 
         assertEquals(0, companyRepository.count());
     }
@@ -184,37 +219,13 @@ public class TransactionTest extends AbstractTest {
      */
     @Test
     public void testSequentialTransactions_dataIntegrityRollbackSecond() {
-        Company company2 = Company.builder()
-                .document(COMPANY_DOCUMENT)
-                .name("COMPANY 2")
-                .build();
 
         companyService.saveOnNewTransaction(company);
         log.info("Persisted {} on new transaction", company);
-        assertThrows(DataIntegrityViolationException.class, () -> companyService.saveOnNewTransaction(company2));
+        assertThrows(DataIntegrityViolationException.class, () -> companyService.saveOnNewTransaction(company2Duplicated));
 
         assertEquals(1, companyRepository.count());
         assertEquals("COMPANY 1", companyRepository.findAll().get(0).getName());
-    }
-
-    @Test
-    public void testPingPong() {
-        transactionService.pingPong();
-    }
-
-    /**
-     * O count só retorna 1 após o commit da segunda transação
-     */
-    @Test
-    public void testCountWhileInserting() {
-
-        PingPongLock lock = new PingPongLock();
-        Thread thread = new Thread(() -> companyService.saveAndWaitSemaphore(company, lock));
-        thread.start();
-        List<Integer> counts = companyService.countCompanies(lock);
-
-        assertEquals(0, counts.get(0));
-        assertEquals(1, counts.get(1));
     }
 
     /**
@@ -234,13 +245,26 @@ public class TransactionTest extends AbstractTest {
     @Test
     public void testCountWhileInserting_readUncommited() {
 
-        PingPongLock lock = new PingPongLock();
-        Thread thread = new Thread(() -> companyService.saveAndWaitSemaphore(company, lock));
-        thread.start();
-        List<Integer> counts = companyService.countCompaniesUncommited(lock);
+        List<Integer> results = new ArrayList<>();
 
-        assertEquals(1, counts.get(0), "Through dirty reads the first select should return 1 uncommited");
-        assertEquals(1, counts.get(1));
+        ParallelTransactions.builder()
+                .action1(() -> {
+                    int count = (int) companyRepository.count();
+                    log.info("Selecting companies, result={}", count);
+                    results.add(count);
+                })
+                .action2(() -> {
+                    companyService.saveAndFlush(company);
+                })
+                .action1(() -> {
+                    int count2 = (int) companyRepository.count();
+                    log.info("Selecting companies, result={}", count2);
+                    results.add(count2);
+                })
+                .execute(transactionService::readUncommitted, transactionService::transactional);
+
+        assertEquals(1, results.get(0), "Through dirty reads the first select should return 1 uncommited");
+        assertEquals(1, results.get(1));
     }
 
     /**
@@ -258,13 +282,7 @@ public class TransactionTest extends AbstractTest {
     @Test
     public void testNonRepeatableRead() {
 
-        company = companyService.save(company);
-
-        PingPongLock lock = new PingPongLock();
-        Long companyId = company.getId();
-        Thread thread = new Thread(() -> companyService.update(companyId, lock));
-        thread.start();
-        List<String> names = companyService.selectBeforeAndAfterUpdate(companyId, lock);
+        List<String> names = testRepeatableRead(transactionService::transactional);
 
         assertEquals("COMPANY 1", names.get(0));
         assertEquals("ENTERPRISE", names.get(1));
@@ -285,38 +303,76 @@ public class TransactionTest extends AbstractTest {
     @Test
     public void testRepeatableRead() {
 
-        company = companyRepository.save(company);
-
-        PingPongLock lock = new PingPongLock();
-        Long companyId = company.getId();
-        Thread thread = new Thread(() -> companyService.update(companyId, lock));
-        thread.start();
-        List<String> names = companyService.selectBeforeAndAfterUpdateRepeatableRead(companyId, lock);
+        List<String> names = testRepeatableRead(transactionService::repeatableRead);
 
         assertEquals("COMPANY 1", names.get(0));
         assertEquals("COMPANY 1", names.get(1));
     }
 
+    public List<String> testRepeatableRead(Consumer<List<Runnable>> transactionalMethod) {
+
+        company = companyService.save(company);
+        Long companyId = company.getId();
+        List<String> names = new ArrayList<>();
+
+        ParallelTransactions parallelTransactions = ParallelTransactions.builder()
+                .action1(() -> {
+                    Company company = companyRepository.findById(companyId).orElseThrow();
+                    String nameBeforeUpdate = company.getName();
+                    log.info("Selected name {}", nameBeforeUpdate);
+                    names.add(nameBeforeUpdate);
+                })
+                .action2(() -> {
+                    Company company = companyRepository.findById(companyId).orElseThrow();
+                    company.setName("ENTERPRISE");
+                    companyRepository.save(company);
+                    log.info("Commiting update of name ENTERPRISE");
+                })
+                .action1(() -> {
+                    entityManager.clear(); // Necessário para evitar que a próxima query use o cache do hibernate
+                    Company company = companyRepository.findById(companyId).orElseThrow();
+                    String nameAfterUpdate = company.getName();
+                    log.info("Selected name {}", nameAfterUpdate);
+                    names.add(nameAfterUpdate);
+                });
+        parallelTransactions.execute(transactionalMethod, transactionService::transactional);
+        return names;
+    }
+
+    /**
+     * Updates paralelos na mesma entidade causam a segunda transação a esperar pelo commit ou rollback da primeira
+     */
     @Test
-    public void testParallelUpdates() throws InterruptedException {
+    public void testParallelUpdate() {
 
         company = companyRepository.save(company);
         Employee employee = buildEmployee(1);
         employee.setCompany(company);
         employee = employeeRepository.save(employee);
         Long employeeId = employee.getId();
-        PingPongLock lock = new PingPongLock();
+        SequenceLock sequenceLock = new SequenceLock();
 
-        Thread thread1 = new Thread(() -> employeeService.increaseSalary(employeeId, BigDecimal.valueOf(100), lock));
-        Thread thread2 = new Thread(() -> employeeService.increaseSalary2(employeeId, BigDecimal.valueOf(300), lock));
-        thread1.start();
-        thread2.start();
-        thread1.join();
-        thread2.join();
+        ParallelTransactions.builder()
+                .action1(() -> {
+                    employeeRepository.increaseSalary(employeeId, BigDecimal.valueOf(100));
+                })
+                .expectBlock2(() -> {
+                    employeeRepository.increaseSalary(employeeId, BigDecimal.valueOf(300));
+                    sequenceLock.expectBlocking();
+                })
+                .action1(() -> {
+                    sequenceLock.expectRunFirst();
+                })
+                .execute(transactionService::transactional, transactionService::transactional);
 
         entityManager.clear();
         Employee employeeDb = employeeRepository.findById(employeeId).orElseThrow();
-        assertEquals(BigDecimal.valueOf(5400), employeeDb.getSalary());
+        assertEquals(5400, employeeDb.getSalary().intValue());
+        assertTrue(sequenceLock.isRightOrder());
+    }
+
+    private <T extends Exception> void withException(List<Runnable> runnables, Class<T> exception) {
+        assertThrows(exception, () -> transactionService.transactional(runnables));
     }
 
 }

@@ -136,4 +136,16 @@ public class TransactionService {
             runnable.run();
         }
     }
+
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    public void repeatableRead(List<Runnable> runnables) {
+        for (Runnable runnable : runnables) {
+            runnable.run();
+        }
+    }
+
+    @Transactional
+    public void runInTransaction(Runnable runnable) {
+        runnable.run();
+    }
 }

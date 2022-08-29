@@ -143,6 +143,16 @@ public class CompanyService {
         employeeService.deleteAll(employees);
     }
 
+    @Transactional
+    @SneakyThrows
+    public int countEmployeesPessimisticRead(Long companyId, CountDownLatch countDownLatch) {
+        Company company = companyRepository.findByIdPessimisticRead(companyId);
+        countDownLatch.countDown();
+        Thread.sleep(100);
+        int size = employeeService.findByCompany(company).size();
+        return size;
+    }
+
     public Company saveAndFlush(Company company) {
         company = companyRepository.saveAndFlush(company);
         log.info("Saved {}", company);
