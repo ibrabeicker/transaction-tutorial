@@ -13,6 +13,7 @@ import javax.persistence.*;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Cacheable(false)
 public class Company {
 
     @Id
@@ -20,4 +21,6 @@ public class Company {
     private Long id;
 
     private String document;
+
+    private String name;
 }
