@@ -1,7 +1,6 @@
 package com.pensarcomodev.transactional;
 
 import com.pensarcomodev.transactional.concurrency.ParallelTransactions;
-import com.pensarcomodev.transactional.concurrency.PingPongLock;
 import com.pensarcomodev.transactional.concurrency.SequenceLock;
 import com.pensarcomodev.transactional.entity.Company;
 import com.pensarcomodev.transactional.entity.Employee;
@@ -14,7 +13,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -25,10 +23,8 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED;
 
-//@DataJpaTest
 @ActiveProfiles("test")
-//@AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Transactional(propagation = NOT_SUPPORTED) // we're going to handle transactions manually
+@Transactional(propagation = NOT_SUPPORTED)
 @SpringBootTest
 public class TransactionTest extends AbstractTest {
 
