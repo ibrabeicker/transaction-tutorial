@@ -148,4 +148,8 @@ public class TransactionService {
     public void runInTransaction(Runnable runnable) {
         runnable.run();
     }
+
+    public void runNoTransaction(Runnable runnable) {
+        runnable.run();
+    }
 }

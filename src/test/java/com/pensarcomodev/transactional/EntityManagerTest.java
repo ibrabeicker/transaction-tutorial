@@ -220,6 +220,23 @@ public class EntityManagerTest extends AbstractTest {
     }
 
     /**
+     * Fora de uma transação as alterações feitas a uma entidade lida não são persistidas
+     */
+    @Test
+    public void propertySetAfterSaveNoTransaction_doesNotPersistChange() {
+
+        transactionService.runNoTransaction(() -> {
+            Company company = companyRepository.findById(companyId).orElseThrow();
+            company.setName("ENTERPRISE");
+            companyRepository.save(company); // opcional
+            company.setName("FOO");
+        });
+
+        company = companyRepository.findById(companyId).orElseThrow();
+        assertEquals("ENTERPRISE", company.getName());
+    }
+
+    /**
      * Alterações feitas após a chamada a entityManager.detach() não são persistidas.
      */
     @Test
