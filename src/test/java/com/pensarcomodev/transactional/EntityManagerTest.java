@@ -2,8 +2,11 @@ package com.pensarcomodev.transactional;
 
 import com.pensarcomodev.transactional.concurrency.ParallelTransactions;
 import com.pensarcomodev.transactional.entity.Company;
+import com.pensarcomodev.transactional.entity.CompanyNoIdGeneration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ActiveProfiles;
@@ -19,7 +22,7 @@ import static org.springframework.transaction.annotation.Propagation.NOT_SUPPORT
 @SpringBootTest
 public class EntityManagerTest extends AbstractTest {
 
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TransactionTest.class);
+    private static final Logger log = LoggerFactory.getLogger(EntityManagerTest.class);
     private Long companyId;
 
     @BeforeEach
@@ -35,7 +38,7 @@ public class EntityManagerTest extends AbstractTest {
      * mesma referência do objeto.
      */
     @Test
-    public void testFindByIdSameTransaction_isSame() {
+    public void findByIdSameTransaction_isSame() {
 
         AtomicReference<Company> companyBd = new AtomicReference<>();
         AtomicReference<Company> companyBd2 = new AtomicReference<>();
@@ -49,11 +52,11 @@ public class EntityManagerTest extends AbstractTest {
     }
 
     /**
-     * Quando chamado em transações diferentes, chamadas que devem retornar a mesma entidade retornam objetos distintos
+     * Quando chamado em transações diferentes, chamadas que devem retornar a mesma entidade retornam dois objetos
      * que representam a mesma entidade.
      */
     @Test
-    public void testFindByIdWithTransaction_isNotSame() {
+    public void findByIdWithTransaction_isNotSame() {
 
         AtomicReference<Company> companyBd = new AtomicReference<>();
         AtomicReference<Company> companyBd2 = new AtomicReference<>();
@@ -80,7 +83,7 @@ public class EntityManagerTest extends AbstractTest {
      * T1 ainda tem uma entidade com o nome anterior à alteração da T2
      */
     @Test
-    public void testUpdatePropertyOtherTransaction_nameDoesNotChange() {
+    public void updatePropertyOtherTransaction_nameDoesNotChange() {
 
         AtomicReference<Company> companyBd = new AtomicReference<>();
 
@@ -108,7 +111,7 @@ public class EntityManagerTest extends AbstractTest {
      * T1 chama entityManager.refresh() e obtém o nome atualizado persistido no banco pela T2
      */
     @Test
-    public void testUpdatePropertyOtherTransaction_callRefresh_nameChange() {
+    public void updatePropertyOtherTransactionWithRefresh_nameChange() {
 
         AtomicReference<Company> companyBd = new AtomicReference<>();
 
@@ -143,7 +146,7 @@ public class EntityManagerTest extends AbstractTest {
      * desfazendo a alteração anterior no nome.
      */
     @Test
-    public void testTwoUpdate_secondOverwritesFirst() {
+    public void twoParallelUpdates_secondOverwritesFirst() {
 
         AtomicReference<Company> companyBd = new AtomicReference<>();
 
@@ -165,7 +168,7 @@ public class EntityManagerTest extends AbstractTest {
 
         Company company = companyRepository.findById(companyId).orElseThrow();
         assertEquals("000000000000", company.getDocument());
-        assertEquals("ENTERPRISE", company.getName());
+        assertEquals("COMPANY 1", company.getName());
     }
 
     /**
@@ -206,7 +209,7 @@ public class EntityManagerTest extends AbstractTest {
      * termina. Usar o save dentro da transação é opcional.
      */
     @Test
-    public void propertySetAfterSave_doesPersistChange() {
+    public void propertySetAfterSaveOnTransaction_doesPersistChange() {
 
         transactionService.runInTransaction(() -> {
             Company company = companyRepository.findById(companyId).orElseThrow();
@@ -255,12 +258,12 @@ public class EntityManagerTest extends AbstractTest {
     }
 
     /**
-     * A chamada ao save não necessariamente altera o registro no banco, é garantido que apenas no final de uma transação
+     * A chamada ao save atualizando não necessariamente altera o registro no banco, é garantido que apenas no final de uma transação
      * a entidade gerenciada seja persistida. Caso seja chamado entityManager.detach() o objeto não é mais uma entidade
      * gerenciada e portanto a alteração não é persistida.
      */
     @Test
-    public void saveDoesNotPersistBeforeTransactionCommit() {
+    public void updatePropertyOnTransaction_onlyUpdatesOnCommit() {
 
         transactionService.runInTransaction(() -> {
             Company company = companyRepository.findById(companyId).orElseThrow();
@@ -274,10 +277,10 @@ public class EntityManagerTest extends AbstractTest {
     }
 
     /**
-     * A chamada ao saveAndFlush garante que a alteração seja feita no banco naquele momento.
+     * A chamada ao saveAndFlush garante que a alteração seja feita no banco no momento da chamada.
      */
     @Test
-    public void saveDoesPersistBeforeTransactionCommit_whenCallingFlush() {
+    public void saveAndFlushOnTransaction_persistsOnDatabaseBeforeCommit() {
 
         transactionService.runInTransaction(() -> {
             Company company = companyRepository.findById(companyId).orElseThrow();
@@ -291,10 +294,43 @@ public class EntityManagerTest extends AbstractTest {
     }
 
     /**
+     * A inserção de registros novos (id gerado pelo banco) acontece imediatamente, não no final da transação.
+     */
+    @Test
+    public void insertingWithoutIdInTransaction_callsDbAndIdIsNotNull() {
+
+        AtomicReference<Long> companyId = new AtomicReference<>();
+        transactionService.runInTransaction(() -> {
+            Company company = Company.builder().document("9999999999999").build();
+            companyRepository.save(company);
+            assertNotNull(company.getId());
+            companyId.set(company.getId());
+            entityManager.detach(company);
+        });
+
+        assertEquals(1, companyRepository.count(companyId.get()));
+    }
+
+    /**
+     * A inserção de registros com id já definido acontece apenas no final da transação chamando save.
+     */
+    @Test
+    public void insertingWithIdInTransaction_persistOnlyHappendOnCommit() {
+
+        transactionService.runInTransaction(() -> {
+            CompanyNoIdGeneration company = CompanyNoIdGeneration.builder().id(9999L).document("9999999999999").build();
+            company = companyNoIdGenerationRepository.save(company);
+            entityManager.detach(company);
+        });
+
+        assertEquals(0, companyNoIdGenerationRepository.count(9999L));
+    }
+
+    /**
      * Se uma entidade é deletada enquanto outra transação manipula a mesma, uma exceção é lançada.
      */
     @Test
-    public void deleteInAnotherTransaction_doesCauseException() {
+    public void deleteInAnotherTransaction_causesException() {
 
         AtomicReference<Company> companyBd = new AtomicReference<>();
 
@@ -318,7 +354,7 @@ public class EntityManagerTest extends AbstractTest {
      * como a inserção de uma nova entidade.
      */
     @Test
-    public void deleteInAnotherTransaction_andCallDetach_doesCreateAnotherEntity() {
+    public void deleteInAnotherTransactionAndCallDetach_createsAnotherEntity() {
 
         AtomicReference<Company> companyBd = new AtomicReference<>();
         AtomicReference<Long> otherId = new AtomicReference<>();

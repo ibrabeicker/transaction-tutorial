@@ -33,15 +33,13 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
         return saveAll(companyList);
     }
 
-    @Transactional
-    @Modifying
-    @Query("delete from Company")
-    void deleteAllQuery();
-
     @Query("select c from Company c order by id")
     List<Company> findPaginationByIndex(Pageable limitPage);
 
     @Query("select c from Company c where c.id > :id order by id")
     List<Company> findPaginationByIndex(@Param("id") Long lastId, Pageable limitPage);
+
+    @Query(value = "select count(*) from Company c where id = :id")
+    int count(@Param("id") Long id);
 
 }

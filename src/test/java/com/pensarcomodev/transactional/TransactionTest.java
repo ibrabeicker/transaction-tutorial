@@ -168,9 +168,13 @@ public class TransactionTest extends AbstractTest {
                     log.info("Persisted 1");
                 })
                 .expectBlock2(() -> {
-                    companyRepository.saveAndFlush(company2Duplicated);
-                    sequenceLock.expectBlocking();
-                    log.info("Persisted 2");
+                    try {
+                        companyRepository.saveAndFlush(company2Duplicated);
+                        log.info("Persisted 2");
+                    } catch (Exception e) {
+                        sequenceLock.expectBlocking();
+                        throw e;
+                    }
                 })
                 .action1(() -> {
                     sequenceLock.expectRunFirst();

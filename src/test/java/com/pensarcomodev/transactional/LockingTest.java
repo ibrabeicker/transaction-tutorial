@@ -23,7 +23,7 @@ import static org.springframework.transaction.annotation.Propagation.NOT_SUPPORT
 @SpringBootTest
 public class LockingTest extends AbstractTest {
 
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TransactionTest.class);
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LockingTest.class);
 
     private List<String> firedFirst;
     private List<String> firedLast;
