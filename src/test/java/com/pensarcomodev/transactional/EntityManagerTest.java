@@ -231,7 +231,7 @@ public class EntityManagerTest extends AbstractTest {
         transactionService.runNoTransaction(() -> {
             Company company = companyRepository.findById(companyId).orElseThrow();
             company.setName("ENTERPRISE");
-            companyRepository.save(company); // opcional
+            companyRepository.save(company);
             company.setName("FOO");
         });
 
