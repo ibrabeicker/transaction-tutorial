@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
@@ -195,7 +196,7 @@ public class TransactionTest extends AbstractTest {
     @Test
     public void testTwoTransactionsPersisting_causesDeadlock() {
 
-        assertThrows(JpaSystemException.class, () -> transactionService.saveCompaniesWithDeadlock(company, company2Duplicated));
+        assertThrows(QueryTimeoutException.class, () -> transactionService.saveCompaniesWithDeadlock(company, company2Duplicated));
 
         assertEquals(0, companyRepository.count());
     }
@@ -263,7 +264,7 @@ public class TransactionTest extends AbstractTest {
                 })
                 .execute(transactionService::readUncommitted, transactionService::transactional);
 
-        assertEquals(1, results.get(0), "Through dirty reads the first select should return 1 uncommited");
+        assertEquals(1, results.get(0), "Dirty reads should return 1 uncommited");
         assertEquals(1, results.get(1));
     }
 

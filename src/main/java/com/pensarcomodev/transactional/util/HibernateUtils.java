@@ -31,7 +31,6 @@ public class HibernateUtils {
 
     public static SessionStatistics getSessionStatistics(EntityManager entityManager) {
         Session session = entityManager.unwrap(Session.class);
-        Statistics statistics = session.getSessionFactory().getStatistics();
         return session.getStatistics();
     }
 

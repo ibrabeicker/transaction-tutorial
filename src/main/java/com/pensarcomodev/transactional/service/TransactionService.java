@@ -1,11 +1,8 @@
 package com.pensarcomodev.transactional.service;
 
-import com.pensarcomodev.transactional.concurrency.PingPongLock;
 import com.pensarcomodev.transactional.entity.Company;
 import com.pensarcomodev.transactional.entity.Employee;
 import com.pensarcomodev.transactional.exception.SalaryException;
-import lombok.SneakyThrows;
-import lombok.extern.java.Log;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,7 +11,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.concurrent.Semaphore;
 
 @Slf4j
 @Service
@@ -87,40 +83,6 @@ public class TransactionService {
 
     public void publicMethodCallingPrivateTransaction(Company company, List<Employee> employees) {
         createWithTransaction(company, employees);
-    }
-
-    @SneakyThrows
-    public List<Integer> testSaveAndCount(Company company) {
-        PingPongLock lock = new PingPongLock();
-        Thread thread = new Thread(() -> companyService.saveAndWaitSemaphore(company, lock));
-        thread.start();
-        return companyService.countCompanies(lock);
-    }
-
-    @SneakyThrows
-    public void pingPong() {
-        PingPongLock lock = new PingPongLock();
-        Thread thread = new Thread(() -> pongs(lock));
-        thread.start();
-        pings(lock);
-        thread.join();
-    }
-
-    private void pings(PingPongLock lock) {
-        for (int i = 0; i < 4; i++) {
-            log.info("Ping {}", i);
-            lock.ping();
-        }
-        lock.end();
-    }
-
-    private void pongs(PingPongLock lock) {
-        lock.waitPing();
-        for (int i = 0; i < 4; i++) {
-            log.info("Pong {}", i);
-            lock.pong();
-        }
-        lock.end();
     }
 
     @Transactional
