@@ -2,6 +2,7 @@ package com.pensarcomodev.transactional;
 
 import com.pensarcomodev.transactional.entity.Company;
 import com.pensarcomodev.transactional.entity.Employee;
+import com.pensarcomodev.transactional.repository.CompanyNoIdGenerationRepository;
 import com.pensarcomodev.transactional.repository.CompanyRepository;
 import com.pensarcomodev.transactional.repository.EmployeeRepository;
 import com.pensarcomodev.transactional.service.CompanyService;
@@ -29,6 +30,9 @@ public class AbstractTest {
     protected CompanyRepository companyRepository;
 
     @Autowired
+    protected CompanyNoIdGenerationRepository companyNoIdGenerationRepository;
+
+    @Autowired
     protected CompanyService companyService;
 
     @Autowired
@@ -46,8 +50,8 @@ public class AbstractTest {
 
     @BeforeEach
     protected void setUp() {
-        employeeRepository.deleteAll();
-        companyRepository.deleteAll();
+        employeeRepository.deleteAllInBatch();
+        companyRepository.deleteAllInBatch();
         company = Company.builder()
                 .document(COMPANY_DOCUMENT)
                 .name("COMPANY 1")

@@ -4,6 +4,13 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.Semaphore;
 
+/**
+ * Mecanismo para facilitar a compreensão da execução de duas threads paralelas.
+ *
+ * O lock começa com o a thread T1 executando e a thread T2 aguardando o envio do ping pela T1. Na chamada de ping() pela
+ * T1 o cenário inverte, fazendo a T1 suspender sua execução e a T2 recebendo a instrução para executar até a chamada de
+ * pong() e assim sucessivamente.
+ */
 @Slf4j
 public class PingPongLock {
 
